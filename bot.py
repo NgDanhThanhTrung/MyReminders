@@ -24,7 +24,7 @@ SHEET_NAME = "MyReminders"
 VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 # ==========================================================
-# 2. WEB SERVER (CHỐNG NGỦ)
+# 2. WEB SERVER (GIỮ BOT KHÔNG BỊ NGỦ TRÊN RENDER)
 # ==========================================================
 app = Flask(__name__)
 @app.route('/')
@@ -54,11 +54,11 @@ def get_sheet():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != MY_CHAT_ID: return
     
-    # --- THIẾT LẬP NÚT MENU GÓC TRÁI (COMMANDS) ---
+    # Thiết lập Nút Menu góc trái sát ô nhập tin nhắn
     commands = [
         BotCommand("start", "Khởi động bot"),
-        BotCommand("list", "Xem danh sách việc hôm nay"),
-        BotCommand("done", "Xác nhận đã xong việc"),
+        BotCommand("list", "Xem danh sách việc"),
+        BotCommand("done", "Hoàn thành việc"),
         BotCommand("add", "Hướng dẫn: /add 08:00 - 09:00 | Việc")
     ]
     await context.bot.set_my_commands(commands)
@@ -77,7 +77,7 @@ async def add_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         input_text = " ".join(context.args)
         if "|" not in input_text or "-" not in input_text:
-            await update.message.reply_text("❌ Định dạng: `/add 08:00 - 09:00 | Nội dung`", parse_mode='Markdown')
+            await update.message.reply_text("❌ Định dạng: `/add 08:00 - 09:00 | Việc`", parse_mode='Markdown')
             return
             
         time_part, msg_p = input_text.split("|", 1)
@@ -85,8 +85,8 @@ async def add_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         today = datetime.datetime.now(VN_TZ).strftime("%d/%m/%Y")
         
         sheet = get_sheet()
+        # Thêm vào: Giờ BĐ (A) | Giờ KT (B) | Nội dung (C) | Trạng thái (D)
         sheet.append_row([f"{start_t.strip()} {today}", f"{end_t.strip()} {today}", msg_p.strip(), "Pending"])
-        
         await update.message.reply_text(f"✅ Đã ghi nhận: {start_t.strip()} ➔ {end_t.strip()} | {msg_p.strip()}")
     except Exception as e: await update.message.reply_text(f"❌ Lỗi: {e}")
 
@@ -95,8 +95,7 @@ async def list_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         rows = get_sheet().get_all_values()
         pending = [f"🔹 `{r[0].split()[0]} - {r[1].split()[0]}`: {r[2]}" for r in rows[1:] if len(r) >= 4 and r[3].strip().lower() == 'pending']
-        
-        text = "📅 **LỊCH TRÌNH CỦA BẠN:**\n\n" + ("\n".join(pending) if pending else "✅ Đã xong hết mọi việc!")
+        text = "📅 **LỊCH TRÌNH HÔM NAY:**\n\n" + ("\n".join(pending) if pending else "✅ Trống! Hãy thêm việc mới.")
         await update.message.reply_text(text, parse_mode='Markdown')
     except Exception as e: await update.message.reply_text(f"❌ Lỗi: {e}")
 
@@ -106,20 +105,17 @@ async def done_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sheet = get_sheet()
         records = sheet.get_all_values()
         pending_rows = [(i, r) for i, r in enumerate(records[1:], start=2) if len(r) >= 4 and r[3].strip().lower() == 'pending']
-        
         if not context.args:
-            msg = "🔢 **Chọn số để hoàn thành:**\n\n"
-            msg += "\n".join([f"{i+1}. {r[2]}" for i, (idx, r) in enumerate(pending_rows)])
+            msg = "🔢 **Chọn số để hoàn thành:**\n\n" + "\n".join([f"{i+1}. {r[2]}" for i, (idx, r) in enumerate(pending_rows)])
             await update.message.reply_text(msg + "\n\nVí dụ: `/done 1`", parse_mode='Markdown')
             return
-            
         idx = int(context.args[0]) - 1
         sheet.update_cell(pending_rows[idx][0], 4, "Done")
         await update.message.reply_text(f"✅ Xong việc: *{pending_rows[idx][1][2]}*", parse_mode='Markdown')
-    except: await update.message.reply_text("❌ Nhập số thứ tự hợp lệ.")
+    except: await update.message.reply_text("❌ Hãy nhập số thứ tự đúng.")
 
 # ==========================================================
-# 5. TỰ ĐỘNG THÔNG BÁO & DỌN DẸP
+# 5. THÔNG BÁO TỰ ĐỘNG & DỌN DẸP SẠCH BONG (Hàng 2 trở xuống)
 # ==========================================================
 
 async def auto_check(context: ContextTypes.DEFAULT_TYPE):
@@ -127,29 +123,30 @@ async def auto_check(context: ContextTypes.DEFAULT_TYPE):
         now_str = datetime.datetime.now(VN_TZ).strftime("%H:%M %d/%m/%Y")
         sheet = get_sheet()
         data = sheet.get_all_values()
-        
         for i, r in enumerate(data[1:], start=2):
             if len(r) >= 4 and r[3].strip().lower() == 'pending':
                 if r[0].strip() == now_str:
-                    await context.bot.send_message(MY_CHAT_ID, text=f"🚀 **BẮT ĐẦU:** {r[2]}\n(Dự kiến kết thúc: {r[1].split()[0]})")
+                    await context.bot.send_message(MY_CHAT_ID, text=f"🚀 **BẮT ĐẦU:** {r[2]}")
                 elif r[1].strip() == now_str:
-                    await context.bot.send_message(MY_CHAT_ID, text=f"🏁 **HẾT GIỜ:** {r[2]}\nBạn đã hoàn thành chưa?")
-    except Exception as e: logging.error(f"Lỗi quét: {e}")
+                    await context.bot.send_message(MY_CHAT_ID, text=f"🏁 **HẾT GIỜ:** {r[2]}")
+    except: pass
 
 async def auto_reset(context: ContextTypes.DEFAULT_TYPE):
+    """Xóa sạch sành sanh từ hàng 2 trở đi để giữ lại tiêu đề A1, B1, C1, D1"""
     try:
         sheet = get_sheet()
         rows = sheet.get_all_values()
-        new_rows = [rows[0]] + [r for r in rows[1:] if len(r) >= 4 and r[3].strip().lower() == 'pending']
-        sheet.clear()
-        sheet.update('A1', new_rows)
-        await context.bot.send_message(MY_CHAT_ID, text="♻️ Hệ thống đã dọn dẹp các việc cũ.")
-    except Exception as e: logging.error(f"Lỗi dọn dẹp: {e}")
+        if len(rows) > 1:
+            # Xóa sạch từ hàng 2 đến hết hàng hiện có
+            sheet.delete_rows(2, len(rows)) 
+            await context.bot.send_message(MY_CHAT_ID, text="♻️ **Ngày mới!** Đã dọn sạch lịch trình (A2:D...) để sẵn sàng cho hôm nay.")
+            logging.info("Đã làm sạch Sheet.")
+    except Exception as e: logging.error(f"Lỗi reset: {e}")
 
 async def handle_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == '📝 Danh sách': await list_reminders(update, context)
-    elif text == '➕ Thêm nhanh': await update.message.reply_text("Gõ: `/add 08:00 - 09:00 | Nội dung`", parse_mode='Markdown')
+    elif text == '➕ Thêm nhanh': await update.message.reply_text("Gõ: `/add 08:00 - 09:00 | Việc`", parse_mode='Markdown')
     elif text == '⚙️ Trạng thái':
         now = datetime.datetime.now(VN_TZ).strftime("%H:%M:%S")
         await update.message.reply_text(f"🟢 Bot Online\n⏰ Giờ VN: {now}")
@@ -169,8 +166,9 @@ if __name__ == '__main__':
 
     jq = application.job_queue
     jq.run_repeating(auto_check, interval=60, first=10)
-    reset_time = datetime.time(hour=0, minute=1, tzinfo=VN_TZ)
+    
+    # Chạy dọn dẹp vào đúng 00:00 hàng ngày
+    reset_time = datetime.time(hour=0, minute=0, tzinfo=VN_TZ)
     jq.run_daily(auto_reset, time=reset_time)
 
-    logging.info("Bot đang khởi động...")
     application.run_polling()
