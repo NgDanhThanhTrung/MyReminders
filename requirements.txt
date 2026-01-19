@@ -1,0 +1,5 @@
+python-telegram-bot[job-queue]
+gspread
+oauth2client
+flask
+pytz
